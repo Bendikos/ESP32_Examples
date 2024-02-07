@@ -1,0 +1,1 @@
+首先要将需要的文字准备好，http://www.jsons.cn/unicode 打开这个网址，将汉字转为 Unicode，将转换好的Unicode处理一下，将“\u”替换为“,0x”，再将开头的“,”删去(成为一个数组)。打开processing4，把该数组放到程序的static final int[] specificUnicodes={}里(330行)，可以修改130行中的字库，选择自己想要的字库。
