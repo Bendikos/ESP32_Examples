@@ -4,4 +4,4 @@ cmake_minimum_required(VERSION 3.16)
 
 include($ENV{IDF_PATH}/tools/cmake/project.cmake)
 list(APPEND EXTRA_COMPONENT_DIRS "st7735s")
-project(project-name3)
+project(ESP32_ST7735S_SPI)

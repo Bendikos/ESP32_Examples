@@ -4,4 +4,4 @@ cmake_minimum_required(VERSION 3.16)
 
 include($ENV{IDF_PATH}/tools/cmake/project.cmake)
 list(APPEND EXTRA_COMPONENT_DIRS "ssd1306")
-project(oled12864-ssd1306)
+project(ESP32_OLED12864_IIC)
