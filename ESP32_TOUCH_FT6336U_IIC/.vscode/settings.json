@@ -1,0 +1,16 @@
+{
+    "idf.adapterTargetName": "esp32",
+    "idf.openOcdConfigs": [
+        "board/esp32-wrover-kit-3.3v.cfg"
+    ],
+    "idf.flashType": "UART",
+    "idf.port": "/dev/ttyUSB0",
+    "files.associations": {
+        "task.h": "c",
+        "ft6336u_driver.h": "c",
+        "i2c_master.h": "c",
+        "gpio.h": "c",
+        "stdio.h": "c",
+        "freertos.h": "c"
+    }
+}
