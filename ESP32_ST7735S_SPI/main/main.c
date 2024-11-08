@@ -1,0 +1,28 @@
+#include <stdio.h>
+#include <string.h>
+#include "esp_log.h"
+#include "freertos/FreeRTOS.h"
+#include "freertos/task.h"
+#include "LCD_ST7735S.h"
+
+
+void app_main(void)
+{
+
+
+    // 释放 SPI 总线
+    // spi_bus_remove_device(spi_handle1);
+    // spi_bus_free(SPI2_HOST);
+    lcdInit();
+    uint8_t str[] = "HELLO_LCD!";
+    LCD_ShowString(0, 0, 128, 160, 16, str, RED, WHITE);
+    GUI_sprintf_hz3232(40, 40, (unsigned char *)"欢", BLUE, WHITE);
+    GUI_sprintf_hz32x(0, 110, (unsigned char *)"欢迎使用", BLUE, WHITE);
+
+    while (1)
+    {
+        ESP_LOGI(TAG, "delay\n");
+        vTaskDelay(pdMS_TO_TICKS(1000));
+
+    }
+}

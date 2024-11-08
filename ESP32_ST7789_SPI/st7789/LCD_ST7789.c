@@ -1,4 +1,4 @@
-#include "LCD_ST7735S.h"
+#include "LCD_ST7789.h"
 #include "font.h"
 #include "hz_16x16.h"
 #include "hz_32x32.h"
@@ -57,141 +57,172 @@ void lcdGpioInit(void)
 void lcdInit(void)
 {
 	lcdGpioInit();
-	gpio_set_level(LCD_PIN_BLK, 1);
 	gpio_set_level(LCD_PIN_RES, 0);
 	vTaskDelay(pdMS_TO_TICKS(100));
 	gpio_set_level(LCD_PIN_RES, 1);
 	vTaskDelay(pdMS_TO_TICKS(100));
-	lcdSelectRegister(0x11); // Sleep out
-	vTaskDelay(pdMS_TO_TICKS(120));
-	lcdSelectRegister(0xB1);
+
+	gpio_set_level(LCD_PIN_BLK, 1);
+	vTaskDelay(pdMS_TO_TICKS(100));
+
+	lcdSelectRegister(0x3A); // 65k mode
 	lcdWriteDataU8(0x05);
-	lcdWriteDataU8(0x3C);
-	lcdWriteDataU8(0x3C);
-
-	lcdSelectRegister(0xB2);
-	lcdWriteDataU8(0x05);
-	lcdWriteDataU8(0x3C);
-	lcdWriteDataU8(0x3C);
-
-	lcdSelectRegister(0xB3);
-	lcdWriteDataU8(0x05);
-	lcdWriteDataU8(0x3C);
-	lcdWriteDataU8(0x3C);
-	lcdWriteDataU8(0x05);
-	lcdWriteDataU8(0x3C);
-	lcdWriteDataU8(0x3C);
-
-	lcdSelectRegister(0xB4);
-	lcdWriteDataU8(0x03);
-
-	lcdSelectRegister(0xC0);
-	lcdWriteDataU8(0x28);
-	lcdWriteDataU8(0x08);
-	lcdWriteDataU8(0x04);
-
-	lcdSelectRegister(0xC1);
-	lcdWriteDataU8(0XC0);
-
-	lcdSelectRegister(0xC2);
-	lcdWriteDataU8(0x0D);
-	lcdWriteDataU8(0x00);
-
-	lcdSelectRegister(0xC3);
-	lcdWriteDataU8(0x8D);
-	lcdWriteDataU8(0x2A);
-
-	lcdSelectRegister(0xC4);
-	lcdWriteDataU8(0x8D);
-	lcdWriteDataU8(0xEE);
-
-	lcdSelectRegister(0xC5);
+	lcdSelectRegister(0xC5); // VCOM
 	lcdWriteDataU8(0x1A);
+	lcdSelectRegister(0x36); // 屏幕显示方向设置
 
-	lcdSelectRegister(0x36);
-	lcdWriteDataU8(0xC0);
-
-	lcdSelectRegister(0xE0);
-	lcdWriteDataU8(0x04);
-	lcdWriteDataU8(0x22);
-	lcdWriteDataU8(0x07);
-	lcdWriteDataU8(0x0A);
-	lcdWriteDataU8(0x2E);
-	lcdWriteDataU8(0x30);
-	lcdWriteDataU8(0x25);
-	lcdWriteDataU8(0x2A);
-	lcdWriteDataU8(0x28);
-	lcdWriteDataU8(0x26);
-	lcdWriteDataU8(0x2E);
-	lcdWriteDataU8(0x3A);
 	lcdWriteDataU8(0x00);
-	lcdWriteDataU8(0x01);
-	lcdWriteDataU8(0x03);
-	lcdWriteDataU8(0x13);
 
-	lcdSelectRegister(0xE1);
-	lcdWriteDataU8(0x04);
-	lcdWriteDataU8(0x16);
-	lcdWriteDataU8(0x06);
-	lcdWriteDataU8(0x0D);
-	lcdWriteDataU8(0x2D);
-	lcdWriteDataU8(0x26);
-	lcdWriteDataU8(0x23);
-	lcdWriteDataU8(0x27);
-	lcdWriteDataU8(0x27);
-	lcdWriteDataU8(0x25);
-	lcdWriteDataU8(0x2D);
-	lcdWriteDataU8(0x3B);
-	lcdWriteDataU8(0x00);
-	lcdWriteDataU8(0x01);
-	lcdWriteDataU8(0x04);
-	lcdWriteDataU8(0x13);
+	// if(USE_HORIZONTAL==0)lcdWriteDataU8(0x00);
+	// else if(USE_HORIZONTAL==1)lcdWriteDataU8(0xC0);
+	// else if(USE_HORIZONTAL==2)lcdWriteDataU8(0x70);
+	// else lcdWriteDataU8(0xA0);
 
-	lcdSelectRegister(0x3A);
+	//-------------ST7789V Frame rate setting-----------//
+	lcdSelectRegister(0xb2); // Porch Setting
 	lcdWriteDataU8(0x05);
+	lcdWriteDataU8(0x05);
+	lcdWriteDataU8(0x00);
+	lcdWriteDataU8(0x33);
+	lcdWriteDataU8(0x33);
 
-	lcdSelectRegister(0x29);
+	lcdSelectRegister(0xb7); // Gate Control
+	lcdWriteDataU8(0x05);	 // 12.2v   -10.43v
+	//--------------ST7789V Power setting---------------//
+	lcdSelectRegister(0xBB); // VCOM
+	lcdWriteDataU8(0x3F);
+
+	lcdSelectRegister(0xC0); // Power control
+	lcdWriteDataU8(0x2c);
+
+	lcdSelectRegister(0xC2); // VDV and VRH Command Enable
+	lcdWriteDataU8(0x01);
+
+	lcdSelectRegister(0xC3); // VRH Set
+	lcdWriteDataU8(0x0F);	 // 4.3+( vcom+vcom offset+vdv)
+
+	lcdSelectRegister(0xC4); // VDV Set
+	lcdWriteDataU8(0x20);	 // 0v
+
+	lcdSelectRegister(0xC6); // Frame Rate Control in Normal Mode
+	lcdWriteDataU8(0X01);	 // 111Hz
+
+	lcdSelectRegister(0xd0); // Power Control 1
+	lcdWriteDataU8(0xa4);
+	lcdWriteDataU8(0xa1);
+
+	lcdSelectRegister(0xE8); // Power Control 1
+	lcdWriteDataU8(0x03);
+
+	lcdSelectRegister(0xE9); // Equalize time control
+	lcdWriteDataU8(0x09);
+	lcdWriteDataU8(0x09);
+	lcdWriteDataU8(0x08);
+	//---------------ST7789V gamma setting-------------//
+	lcdSelectRegister(0xE0); // Set Gamma
+	lcdWriteDataU8(0xD0);
+	lcdWriteDataU8(0x05);
+	lcdWriteDataU8(0x09);
+	lcdWriteDataU8(0x09);
+	lcdWriteDataU8(0x08);
+	lcdWriteDataU8(0x14);
+	lcdWriteDataU8(0x28);
+	lcdWriteDataU8(0x33);
+	lcdWriteDataU8(0x3F);
+	lcdWriteDataU8(0x07);
+	lcdWriteDataU8(0x13);
+	lcdWriteDataU8(0x14);
+	lcdWriteDataU8(0x28);
+	lcdWriteDataU8(0x30);
+
+	lcdSelectRegister(0XE1); // Set Gamma
+	lcdWriteDataU8(0xD0);
+	lcdWriteDataU8(0x05);
+	lcdWriteDataU8(0x09);
+	lcdWriteDataU8(0x09);
+	lcdWriteDataU8(0x08);
+	lcdWriteDataU8(0x03);
+	lcdWriteDataU8(0x24);
+	lcdWriteDataU8(0x32);
+	lcdWriteDataU8(0x32);
+	lcdWriteDataU8(0x3B);
+	lcdWriteDataU8(0x14);
+	lcdWriteDataU8(0x13);
+	lcdWriteDataU8(0x28);
+	lcdWriteDataU8(0x2F);
+
+	lcdSelectRegister(0x20); // 反显
+	lcdSelectRegister(0x11); // Exit Sleep // 退出睡眠模式
+	vTaskDelay(pdMS_TO_TICKS(120));
+	lcdSelectRegister(0x29); // Display on // 开显示
 }
 
-void lcdSelectRegister(unsigned char data)
+static void lcdSpiTransmit(const uint8_t *data, uint8_t len, bool isCommand)
 {
-	gpio_set_level(LCD_PIN_DC, 0);
-	trans.length = 8;
-	trans.tx_buffer = &data;
+	gpio_set_level(LCD_PIN_DC, isCommand ? 0 : 1);
+	trans.length = len * 8;
+	trans.tx_buffer = data;
 	spi_device_transmit(spi_handle1, &trans);
-	gpio_set_level(LCD_PIN_DC, 1);
 }
 
-void lcdWriteDataU8(unsigned char data)
+void lcdSelectRegister(uint8_t data)
 {
-	trans.length = 8;
-	trans.tx_buffer = &data;
-	spi_device_transmit(spi_handle1, &trans);
+	lcdSpiTransmit(&data, 1, true);
 }
 
-void lcdWriteDataU16(unsigned short color)
+void lcdWriteDataU8(uint8_t data)
 {
-	color = (color << 8) | (color >> 8);
-	trans.length = 16;
-	trans.tx_buffer = &color,
-	spi_device_transmit(spi_handle1, &trans);
+	lcdSpiTransmit(&data, 1, false);
 }
 
+void lcdWriteDataU16(uint16_t color)
+{
+	uint16_t swapped = (color << 8) | (color >> 8); // Endian conversion
+	lcdSpiTransmit((uint8_t *)&swapped, 2, false);
+}
 void lcdSetAddress(unsigned short x1, unsigned short y1, unsigned short x2, unsigned short y2)
 {
-	lcdSelectRegister(0x2A);
-	lcdWriteDataU8(x1 >> 8);
-	lcdWriteDataU8(x1 & 0xFF);
-	lcdWriteDataU8(x2 >> 8);
-	lcdWriteDataU8(x2 & 0xFF);
 
-	lcdSelectRegister(0x2B);
-	lcdWriteDataU8(y1 >> 8);
-	lcdWriteDataU8(y1 & 0xFF);
-	lcdWriteDataU8(y2 >> 8);
-	lcdWriteDataU8(y2 & 0xFF);
-
-	lcdSelectRegister(0x2C);
+	// if (USE_HORIZONTAL == 0)
+	// {
+	lcdSelectRegister(0x2a); // 列地址设置
+	lcdWriteDataU16(x1);
+	lcdWriteDataU16(x2);
+	lcdSelectRegister(0x2b); // 行地址设置
+	lcdWriteDataU16(y1);
+	lcdWriteDataU16(y2);
+	lcdSelectRegister(0x2c); // 储存器写
+							 // }
+							 // else if (USE_HORIZONTAL == 1)
+							 // {
+							 // 	lcdSelectRegister(0x2a); // 列地址设置
+							 // 	lcdWriteDataU16(x1);
+							 // 	lcdWriteDataU16(x2);
+							 // 	lcdSelectRegister(0x2b); // 行地址设置
+							 // 	lcdWriteDataU16(y1 + 80);
+							 // 	lcdWriteDataU16(y2 + 80);
+							 // 	lcdSelectRegister(0x2c); // 储存器写
+							 // }
+							 // else if (USE_HORIZONTAL == 2)
+							 // {
+							 // 	lcdSelectRegister(0x2a); // 列地址设置
+							 // 	lcdWriteDataU16(x1);
+							 // 	lcdWriteDataU16(x2);
+							 // 	lcdSelectRegister(0x2b); // 行地址设置
+							 // 	lcdWriteDataU16(y1);
+							 // 	lcdWriteDataU16(y2);
+							 // 	lcdSelectRegister(0x2c); // 储存器写
+							 // }
+							 // else
+							 // {
+							 // 	lcdSelectRegister(0x2a); // 列地址设置
+							 // 	lcdWriteDataU16(x1 + 80);
+							 // 	lcdWriteDataU16(x2 + 80);
+							 // 	lcdSelectRegister(0x2b); // 行地址设置
+							 // 	lcdWriteDataU16(y1);
+							 // 	lcdWriteDataU16(y2);
+							 // 	lcdSelectRegister(0x2c); // 储存器写
+							 // }
 }
 
 void lcdClear(unsigned short color)
