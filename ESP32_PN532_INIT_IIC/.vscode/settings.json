@@ -27,7 +27,10 @@
         "time.h": "c",
         "semphr.h": "c",
         "gpio.h": "c",
-        "queue.h": "c"
+        "queue.h": "c",
+        "sdkconfig.h": "c",
+        "complex": "c",
+        "format": "c"
     },
     "idf.flashType": "UART"
 }

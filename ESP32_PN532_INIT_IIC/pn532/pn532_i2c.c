@@ -4,11 +4,71 @@
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 
-#define ACK_LENGTH 7
-#define RES_LENGTH 16
-#define BUF_LENGTH 64
-
 static const uint8_t ACK_PACKET[ACK_LENGTH] = {0x01, 0x00, 0x00, 0xff, 0x00, 0xff, 0x00};
+
+void dev_pn532_initialization(void)
+{
+    int len;
+    uint8_t ver[2];
+    uint8_t pack[BUF_LENGTH];
+    uint8_t buf[] = {CMD_IN_LIST_PASSIVE_TARGET, FIND_NFCCARD_MAXNUM, NFC_106K_PROTOCOL};
+    i2c_master_bus_config_t i2c_mst_config = {
+        .clk_source = I2C_CLK_SRC_DEFAULT,
+        .i2c_port = I2C_MASTER_NUM,
+        .scl_io_num = I2C_MASTER_SCL_IO,
+        .sda_io_num = I2C_MASTER_SDA_IO,
+        .glitch_ignore_cnt = 7,
+        .flags.enable_internal_pullup = true,
+    };
+    ESP_ERROR_CHECK(i2c_new_master_bus(&i2c_mst_config, &bus_handle));
+
+    i2c_device_config_t dev_cfg = {
+        .dev_addr_length = I2C_ADDR_BIT_LEN_7,
+        .device_address = PN532_I2C_ADDRESS,
+        .scl_speed_hz = 100000,
+    };
+
+    ESP_ERROR_CHECK(i2c_master_bus_add_device(bus_handle, &dev_cfg, &pn532_handle));
+    ESP_LOGI(TAG, "create PN532 device");
+
+    PN532_GPIO_Init();
+    PN532_Reset();
+
+    if (PN532_Get_Version(ver) != PN532_OK)
+    {
+        ESP_LOGI(TAG, "Read Version ERROR.");
+        while (1)
+        {
+        }
+    }
+    ESP_LOGI(TAG, "PN532 Version %d.%d", ver[0], ver[1]);
+
+    if ((ver[0] != 0x01) || (ver[1] != 0x06))
+    {
+        ESP_LOGI(TAG, "Version not match!");
+    }
+
+    if (PN532_SAMConfig() != PN532_OK)
+    {
+        ESP_LOGI(TAG, "PN532 SAMConfig ERROR.");
+        while (1)
+        {
+        }
+    }
+
+    ready_to_recive();
+
+    gpio_config_t irq_gpio_config = {
+        .pin_bit_mask = (1ULL << PN532_IRQ_PIN),
+        .mode = GPIO_MODE_INPUT,
+        .pull_up_en = GPIO_PULLUP_ENABLE,
+        .pull_down_en = GPIO_PULLDOWN_DISABLE,
+        .intr_type = GPIO_INTR_NEGEDGE,
+    };
+    gpio_config(&irq_gpio_config);
+    gpio_set_level(PN532_IRQ_PIN, 1);
+    
+}
 
 /**
  * @brief  Generate PN532 data package.
@@ -170,28 +230,28 @@ PN532_RES PN532_SAMConfig(void)
 /**
  * @brief  Read passive target ID.
  */
-PN532_RES PN532_ReadPassiveTargetID(uint8_t *card_id, uint8_t *id_len)
-{
-    uint8_t buf[] = {CMD_IN_LIST_PASSIVE_TARGET, FIND_NFCCARD_MAXNUM, NFC_106K_PROTOCOL};
-    uint8_t pack[BUF_LENGTH];
-    uint8_t res[BUF_LENGTH];
-    uint8_t pdata[RES_LENGTH];
+// PN532_RES PN532_ReadPassiveTargetID(uint8_t *card_id, uint8_t *id_len)
+// {
+//     uint8_t buf[] = {CMD_IN_LIST_PASSIVE_TARGET, FIND_NFCCARD_MAXNUM, NFC_106K_PROTOCOL};
+//     uint8_t pack[BUF_LENGTH];
+//     uint8_t res[BUF_LENGTH];
+//     uint8_t pdata[RES_LENGTH];
 
-    int ret = PN532_Package(buf, 3, pack);
-    if (PN532_Write_WaitAck(pack, ret, 1000) != PN532_OK)
-        return PN532_TIMEOUT;
-    if (PN532_Response(res, 23, -1) != PN532_OK)
-        return PN532_TIMEOUT;
+//     int ret = PN532_Package(buf, 3, pack);
+//     if (PN532_Write_WaitAck(pack, ret, 1000) != PN532_OK)
+//         return PN532_TIMEOUT;
+//     if (PN532_Response(res, 23, -1) != PN532_OK)
+//         return PN532_TIMEOUT;
 
-    if (res[0] == 0x01)
-    {
-        ret = PN532_Parse(&res[1], 22, pdata);
-        if (ret > 0)
-        {
-            *id_len = pdata[6];
-            memcpy(card_id, &pdata[7], *id_len);
-            return PN532_OK;
-        }
-    }
-    return PN532_TIMEOUT;
-}
+//     if (res[0] == 0x01)
+//     {
+//         ret = PN532_Parse(&res[1], 22, pdata);
+//         if (ret > 0)
+//         {
+//             *id_len = pdata[6];
+//             memcpy(card_id, &pdata[7], *id_len);
+//             return PN532_OK;
+//         }
+//     }
+//     return PN532_TIMEOUT;
+// }
