@@ -1,268 +1,173 @@
+/* UART Events Example
+
+   This example code is in the Public Domain (or CC0 licensed, at your option.)
+
+   Unless required by applicable law or agreed to in writing, this
+   software is distributed on an "AS IS" BASIS, WITHOUT WARRANTIES OR
+   CONDITIONS OF ANY KIND, either express or implied.
+*/
 #include <stdio.h>
 #include <string.h>
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 #include "freertos/queue.h"
-#include "esp_log.h"
-// #include "uart_init.h"
-// #include "gpio_init.h"
-#include "zw101.h"
 #include "driver/uart.h"
 #include "driver/gpio.h"
-typedef struct queue_uart
+#include "esp_log.h"
+#include "zw101.h"
+
+// UART2 配置 tx-gpio6 rx-gpio7
+#define EX_UART_NUM UART_NUM_2
+#define PATTERN_CHR_NUM (1) /*!< Set the number of consecutive and identical characters received by receiver which defines a UART pattern*/
+
+#define BUF_SIZE (1024)
+#define RD_BUF_SIZE (BUF_SIZE)
+
+/*
+0   刚初始化系统
+1   读索引表
+2   注册指纹
+3   删除指纹
+4   验证指纹
+*/
+uint8_t state = 0;
+uint8_t data_bit[64]; // 数组下标是flash中指纹的ID号。
+static QueueHandle_t uart2_queue;
+
+static void uart_event_task(void *pvParameters)
 {
-    uint8_t buffer[MY_ZW101_PACK_BUFF_LEN];
-    uint16_t len;
-} queue_uart_node;
-
-static const char *TAG = "main";
-uart_node_t uart1_node;
-static my_zw101_node zw101_node = {}; // zw101包
-gpio_pin_t touch_pin;// zw101触摸感应引脚，如果触摸，则为1，反之为0
-gpio_pin_t ctrl_pin;// zw101模组电源控制引脚
-gpio_pin_t mag_pin;// 锁控制
-static QueueHandle_t xQueue = NULL;
-
-/**
- * zw101驱动配置函数
- */
-static void zw101_div(my_zw101_node *node)
-{
-    static const char *TAG = "main zw101";
-    ESP_LOGI(TAG, "len = [%d]", node->pack_buffer_len);
-    ESP_LOG_BUFFER_HEXDUMP(TAG, node->pack_buffer, node->pack_buffer_len, ESP_LOG_INFO);
-    uart_write_bytes(uart1_node.uart_num, node->pack_buffer, node->pack_buffer_len);
-    vTaskDelay(pdMS_TO_TICKS(200));
-}
-
-// UART 初始化函数
-static void uart_config_init(uart_node_t *node)
-{
-    uart_config_t uart_config = {
-        .baud_rate = node->rate,
-        .data_bits = UART_DATA_8_BITS,
-        .parity = UART_PARITY_DISABLE,
-        .stop_bits = UART_STOP_BITS_1,
-        .flow_ctrl = UART_HW_FLOWCTRL_DISABLE,
-        .source_clk = UART_SCLK_APB,
-    };
-    uart_param_config(node->uart_num, &uart_config);
-    uart_set_pin(node->uart_num, node->tx_pin, node->rx_pin, UART_PIN_NO_CHANGE, UART_PIN_NO_CHANGE);
-    uart_driver_install(node->uart_num, node->buffer, 0, 0, NULL, 0);
-}
-
-/**
- * 整体初始化和配置
- */
-static void config_init(void)
-{
-
-    // UART1 配置 tx-gpio22 rx-gpio23
-    uart1_node.uart_num = UART_NUM_2;
-    uart1_node.rate = 115200;
-    uart1_node.rx_pin = GPIO_NUM_23;
-    uart1_node.tx_pin = GPIO_NUM_22;
-    uart1_node.buffer = 1024;
-
-    uart_config_init(&uart1_node);
-
-    // Touch pin 配置
-    touch_pin.pin = GPIO_NUM_2;
-    touch_pin.status = 0;
-    touch_pin.config.pin_bit_mask = (1ULL << touch_pin.pin);
-    touch_pin.config.mode = GPIO_MODE_INPUT;
-    touch_pin.config.pull_up_en = GPIO_PULLUP_DISABLE;
-    touch_pin.config.pull_down_en = GPIO_PULLDOWN_DISABLE;
-    touch_pin.config.intr_type = GPIO_INTR_DISABLE;
-    gpio_config(&touch_pin.config);
-
-    // Ctrl pin 配置
-    ctrl_pin.pin = GPIO_NUM_18;
-    ctrl_pin.status = 0;
-    ctrl_pin.config.pin_bit_mask = (1ULL << ctrl_pin.pin);
-    ctrl_pin.config.mode = GPIO_MODE_OUTPUT;
-    ctrl_pin.config.pull_up_en = GPIO_PULLUP_DISABLE;
-    ctrl_pin.config.pull_down_en = GPIO_PULLDOWN_DISABLE;
-    ctrl_pin.config.intr_type = GPIO_INTR_DISABLE;
-    gpio_config(&ctrl_pin.config);
-
-    // Mag pin 配置
-    mag_pin.pin = GPIO_NUM_19;
-    mag_pin.status = 0;
-    mag_pin.config.pin_bit_mask = (1ULL << mag_pin.pin);
-    mag_pin.config.mode = GPIO_MODE_OUTPUT;
-    mag_pin.config.pull_up_en = GPIO_PULLUP_DISABLE;
-    mag_pin.config.pull_down_en = GPIO_PULLDOWN_DISABLE;
-    mag_pin.config.intr_type = GPIO_INTR_DISABLE;
-    gpio_config(&mag_pin.config);
-
-    // ZW101 设备配置
-    zw101_node.address = 0xffffffff;
-    zw101_node.div_p = zw101_div;
-}
-
-/**
- * 串口接收任务
- */
-static void uart1_read_task(void *arg)
-{
-    // vTaskDelay(pdMS_TO_TICKS(20000000));
-
-    static const char *TAG = "main uart1 read";
-    queue_uart_node *node = (queue_uart_node *)malloc(sizeof(queue_uart_node));
-    assert(node);
-    uint8_t *data = (uint8_t *)malloc(uart1_node.buffer * sizeof(uint8_t));
-    assert(data);
+    uart_event_t event;
+    uint8_t *dtmp = (uint8_t *)malloc(RD_BUF_SIZE);
     for (;;)
     {
-        int len = uart_read_bytes(uart1_node.uart_num, data, (uart1_node.buffer - 1), pdMS_TO_TICKS(50));
-        if (len)
+        // Waiting for UART event.
+        if (xQueueReceive(uart2_queue, (void *)&event, (TickType_t)portMAX_DELAY))
         {
-            ESP_LOGI(TAG, "len = [%d]", len);
-            ESP_LOG_BUFFER_HEXDUMP(TAG, data, len, ESP_LOG_INFO);
-            node->len = len;
-            if (node->len < MY_ZW101_PACK_BUFF_LEN)
+            bzero(dtmp, RD_BUF_SIZE);
+            size_t buffered_size;
+            uint8_t i = 0, j = 0, num = 0;
+            switch (event.type)
             {
-                memcpy((char *)node->buffer, (char *)data, node->len);
-                xQueueSend(xQueue, node, (TickType_t)0);
+            case UART_DATA:
+                if (state == 1 && event.size >= 11)
+                {
+                    ESP_LOGI(TAG, "读索引表收到的字节数: %d", event.size);
+                    uart_read_bytes(EX_UART_NUM, dtmp, event.size, portMAX_DELAY);
+                    ESP_LOG_BUFFER_HEX(TAG, dtmp, event.size); // 打印接收到的数据
+                    uint8_t data_th = 0;
+
+                    for (i = 10; i < 18; i++)
+                    {
+                        data_th = dtmp[i];
+                        for (j = 0; j < 8; j++)
+                        {
+                            data_bit[num] = (data_th >> j) & 0x01;
+                            num++;
+                        }
+                    }
+                    for (i = 0; i < 64; i++)
+                    {
+                        if (data_bit[i] == 1)
+                        {
+                            ESP_LOGI(TAG, "存在指纹: %d", i);
+                        }
+                    }
+                }
+                if (state == 2 && event.size >= 11)
+                {
+                    ESP_LOGI(TAG, "注册指纹收到的字节数: %d", event.size);
+                    uart_read_bytes(EX_UART_NUM, dtmp, event.size, portMAX_DELAY);
+                    ESP_LOG_BUFFER_HEX(TAG, dtmp, event.size); // 打印接收到的数据
+                }
+                if (state == 3 && event.size >= 11)
+                {
+                    ESP_LOGI(TAG, "删除指纹收到的字节数: %d", event.size);
+                    uart_read_bytes(EX_UART_NUM, dtmp, event.size, portMAX_DELAY);
+                    ESP_LOG_BUFFER_HEX(TAG, dtmp, event.size); // 打印接收到的数据
+                }
+                if (state == 4 && event.size >= 11)
+                {
+                    ESP_LOGI(TAG, "验证指纹收到的字节数: %d", event.size);
+                    uart_read_bytes(EX_UART_NUM, dtmp, event.size, portMAX_DELAY);
+                    ESP_LOG_BUFFER_HEX(TAG, dtmp, event.size); // 打印接收到的数据
+                }
+                break;
+            case UART_PATTERN_DET:
+                uart_get_buffered_data_len(EX_UART_NUM, &buffered_size);
+                int pos = uart_pattern_pop_pos(EX_UART_NUM);
+                ESP_LOGI(TAG, "[UART PATTERN DETECTED] pos: %d, buffered size: %d", pos, buffered_size);
+                if (pos == -1)
+                {
+                    // There used to be a UART_PATTERN_DET event, but the pattern position queue is full so that it can not
+                    // record the position. We should set a larger queue size.
+                    // As an example, we directly flush the rx buffer here.
+                    uart_flush_input(EX_UART_NUM);
+                }
+                else
+                {
+                    uart_read_bytes(EX_UART_NUM, dtmp, pos, 100 / portTICK_PERIOD_MS);
+                    uint8_t pat[PATTERN_CHR_NUM + 1];
+                    memset(pat, 0, sizeof(pat));
+                    uart_read_bytes(EX_UART_NUM, pat, PATTERN_CHR_NUM, 100 / portTICK_PERIOD_MS);
+                    if (pat[0] == 0X55)
+                    {
+                        ESP_LOGI(TAG, "pat[0] == 0X55 ZW101初始化完成");
+                        ZW101_ReadIndexTable();
+                        state = 1;
+                    }
+                }
+                break;
+
+            default:
+                break;
             }
         }
     }
-    free(node);
-    free(data);
-}
-
-/**
- * 任务初始化
- */
-static void task_init(void)
-{
-    xQueue = xQueueCreate(1, sizeof(queue_uart_node));
-    xTaskCreate(uart1_read_task, "uart read", 4 * 1024, NULL, 3, NULL);
+    free(dtmp);
+    dtmp = NULL;
+    vTaskDelete(NULL);
 }
 
 void app_main(void)
 {
-    static queue_uart_node node;
-    ESP_LOGI(TAG, "main start");
-    config_init();
-    task_init();
-    ESP_LOGI(TAG, "init end");
-    // 开启电源
-    ctrl_pin.status = 1;
-    gpio_set_level(ctrl_pin.pin, ctrl_pin.status);
-    vTaskDelay(pdMS_TO_TICKS(200));
-    // 校验传感器是否正常工作
-    my_zw101_ps_check_sensor(&zw101_node);
+    esp_log_level_set(TAG, ESP_LOG_INFO);
 
-    vTaskDelay(pdMS_TO_TICKS(200));
-    while (xQueueReceive(xQueue, &node, (TickType_t)0) == pdTRUE)
+    /* Configure parameters of an UART driver,
+     * communication pins and install the driver */
+    uart_config_t uart_config = {
+        .baud_rate = 115200,
+        .data_bits = UART_DATA_8_BITS,
+        .parity = UART_PARITY_DISABLE,
+        .stop_bits = UART_STOP_BITS_1,
+        .flow_ctrl = UART_HW_FLOWCTRL_DISABLE,
+        .source_clk = UART_SCLK_DEFAULT,
+    };
+    // Install UART driver, and get the queue.
+    uart_driver_install(EX_UART_NUM, BUF_SIZE * 2, BUF_SIZE * 2, 20, &uart2_queue, 0);
+    uart_param_config(EX_UART_NUM, &uart_config);
+
+    // Set UART log level
+    esp_log_level_set(TAG, ESP_LOG_INFO);
+    // Set UART pins (using UART0 default pins ie no changes.)
+    uart_set_pin(EX_UART_NUM, 6, 7, UART_PIN_NO_CHANGE, UART_PIN_NO_CHANGE);
+
+    // Set uart pattern detect function.
+    uart_enable_pattern_det_baud_intr(EX_UART_NUM, 0x55, PATTERN_CHR_NUM, 9, 100, 100);
+
+    // Reset the pattern queue length to record at most 20 pattern positions.
+    uart_pattern_queue_reset(EX_UART_NUM, 20);
+
+    // Create a task to handler UART event from ISR
+    xTaskCreate(uart_event_task, "uart_event_task", 3072, NULL, 12, NULL);
+
+    while (1)
     {
-        memcpy(zw101_node.pack_buffer, node.buffer, node.len);
-        zw101_node.pack_buffer_len = node.len;
-        uint16_t head, len;
-        if (my_zw101_answer_check(&zw101_node, &head, &len) == 0)
-        {
-            ESP_LOGI(TAG, "answer check success");
-        }
-        vTaskDelay(pdMS_TO_TICKS(100));
+        // ZW101_ReadSysPara();
+        // ZW101_AutoIdentify();
+        // ZW101_DeletChar(0x01);
+        // ZW101_AutoEnroll(0x01);
+        // if (!zw101_package(buffer1, sizeof(buffer1)))
+        //     uart_write_bytes(EX_UART_NUM, buffer1, sizeof(buffer1));
+        vTaskDelay(pdMS_TO_TICKS(3000));
     }
-
-    vTaskDelay(pdMS_TO_TICKS(200));
-
-    // 进入休眠状态
-    // my_zw101_ps_sleep(&zw101_node);
-    // while (xQueueReceive(xQueue, &node, (TickType_t)0) == pdTRUE)
-    // {
-    //     memcpy(zw101_node.pack_buffer, node.buffer, node.len);
-    //     zw101_node.pack_buffer_len = node.len;
-    //     uint16_t head, len;
-    //     if (my_zw101_answer_check(&zw101_node, &head, &len) == 0)
-    //     {
-    //         ESP_LOGI(TAG, "answer check success");
-    //     }
-    //     vTaskDelay(pdMS_TO_TICKS(100));
-    // }
-    // ESP_LOGI(TAG, "close power");
-    // 关闭电源
-
-    ctrl_pin.status = 0;
-    gpio_set_level(ctrl_pin.pin, ctrl_pin.status);
-
-    for (;;)
-    {
-        if (ctrl_pin.status == 0)
-        {
-            touch_pin.status = gpio_get_level(touch_pin.pin);
-            if (touch_pin.status == 1 || true)
-            {
-                ESP_LOGI(TAG, "pin status = [%d]", touch_pin.status);
-                ctrl_pin.status = 1;
-                gpio_set_level(ctrl_pin.pin, ctrl_pin.status); // 开启电源
-                vTaskDelay(pdMS_TO_TICKS(100));
-                my_zw101_ps_auto_identify(&zw101_node, 1, 0xffff, 0x0000); // 验证指纹
-                uint8_t zw101_ps_auto_flag = 0;                            // 验证是否成功，标识0为成功，1为失败
-                while (xQueueReceive(xQueue, &node, (TickType_t)0) == pdTRUE)
-                {
-                    memcpy(zw101_node.pack_buffer, node.buffer, node.len);
-                    zw101_node.pack_buffer_len = node.len;
-                    uint16_t head, len;
-                    if (my_zw101_answer_check(&zw101_node, &head, &len) == 0)
-                    {
-                        ESP_LOGI(TAG, "answer check read");
-                        ESP_LOGI(TAG, "head = [%d]", head);
-                        // 校验
-                        if (zw101_node.pack_buffer[head] == 0x00)
-                        {
-                            // todo处理数据，可以增加身份显示功能和验证符合百分比信息
-                            if (zw101_node.pack_buffer[head + 1] == 0x00)
-                            {
-                                ESP_LOGI(TAG, "answer check 0x00");
-                            }
-                            else if (zw101_node.pack_buffer[head + 1] == 0x01)
-                            {
-                                ESP_LOGI(TAG, "answer check 0x01");
-                            }
-                            else if (zw101_node.pack_buffer[head + 1] == 0x05)
-                            {
-                                ESP_LOGI(TAG, "answer check 0x05");
-                            }
-                        }
-                        else
-                        {
-                            zw101_ps_auto_flag = 1;
-                        }
-                    }
-                    vTaskDelay(pdMS_TO_TICKS(100));
-                }
-                // 休眠模块
-                my_zw101_ps_sleep(&zw101_node);
-                while (xQueueReceive(xQueue, &node, (TickType_t)0) == pdTRUE)
-                {
-                    memcpy(zw101_node.pack_buffer, node.buffer, node.len);
-                    zw101_node.pack_buffer_len = node.len;
-                    uint16_t head, len;
-                    if (my_zw101_answer_check(&zw101_node, &head, &len) == 0)
-                    {
-                        ESP_LOGI(TAG, "zw101 sleep...");
-                    }
-                    vTaskDelay(pdMS_TO_TICKS(100));
-                }
-                // 关闭电源
-                ctrl_pin.status = 0;
-                gpio_set_level(ctrl_pin.pin, ctrl_pin.status);
-                // todo开启门或关闭门
-                if (zw101_ps_auto_flag == 0)
-                {
-                    ESP_LOGI(TAG, "open door");
-                }
-                else
-                {
-                    ESP_LOGI(TAG, "not open door");
-                }
-            }
-        }
-        vTaskDelay(pdMS_TO_TICKS(10));
-    }
-    vQueueDelete(xQueue);
 }
