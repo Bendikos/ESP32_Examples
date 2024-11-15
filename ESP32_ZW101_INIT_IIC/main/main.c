@@ -32,6 +32,7 @@
 */
 uint8_t state = 0;
 uint8_t data_bit[64]; // 数组下标是flash中指纹的ID号。
+
 static QueueHandle_t uart2_queue;
 
 static void uart_event_task(void *pvParameters)
@@ -77,7 +78,33 @@ static void uart_event_task(void *pvParameters)
                 {
                     ESP_LOGI(TAG, "注册指纹收到的字节数: %d", event.size);
                     uart_read_bytes(EX_UART_NUM, dtmp, event.size, portMAX_DELAY);
-                    ESP_LOG_BUFFER_HEX(TAG, dtmp, event.size); // 打印接收到的数据
+                    // ESP_LOG_BUFFER_HEX(TAG, dtmp, event.size); // 打印接收到的数据
+                    if (dtmp[10] == 0x00 && dtmp[11] == 0x00)
+                    {
+                        if (dtmp[9] == 0x00)
+                            ESP_LOGI(TAG, "注册指令合法");
+                    }
+                    else if (dtmp[11] <= 0x0A)
+                    {
+                        if (dtmp[9] == 0x00)
+                            ESP_LOGI(TAG, "第%d次指纹捕捉成功", dtmp[11]);
+                    }
+                    if (dtmp[11] == 0xF0)
+                    {
+                        if (dtmp[9] == 0x00)
+                            ESP_LOGI(TAG, "合并模板成功");
+                    }
+                    if (dtmp[11] == 0xF1)
+                    {
+                        if (dtmp[9] == 0x00)
+                            ESP_LOGI(TAG, "已注册检测通过");
+                    }
+                    if (dtmp[11] == 0xF2)
+                    {
+                        if (dtmp[9] == 0x00)
+                            ESP_LOGI(TAG, "模板存储成功");
+
+                    }
                 }
                 if (state == 3 && event.size >= 11)
                 {
@@ -92,6 +119,7 @@ static void uart_event_task(void *pvParameters)
                     ESP_LOG_BUFFER_HEX(TAG, dtmp, event.size); // 打印接收到的数据
                 }
                 break;
+
             case UART_PATTERN_DET:
                 uart_get_buffered_data_len(EX_UART_NUM, &buffered_size);
                 int pos = uart_pattern_pop_pos(EX_UART_NUM);
@@ -162,12 +190,15 @@ void app_main(void)
 
     while (1)
     {
+
         // ZW101_ReadSysPara();
         // ZW101_AutoIdentify();
         // ZW101_DeletChar(0x01);
         // ZW101_AutoEnroll(0x01);
         // if (!zw101_package(buffer1, sizeof(buffer1)))
         //     uart_write_bytes(EX_UART_NUM, buffer1, sizeof(buffer1));
-        vTaskDelay(pdMS_TO_TICKS(3000));
+        vTaskDelay(pdMS_TO_TICKS(9000));
+        state = 2;
+        ZW101_AutoEnroll(0x03);
     }
 }

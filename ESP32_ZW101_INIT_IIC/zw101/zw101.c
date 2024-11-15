@@ -74,8 +74,7 @@ uint8_t ZW101_AutoEnroll(uint8_t number)
     data[14] = 0X09;
     data[15] = 0X00;
     data[16] = 0X48 + number;
-    ESP_LOG_BUFFER_HEX(TAG, data, 17); // 打印接收到的数据
-    // uart_write_bytes(UART_NUM_2, data, 17);
+    uart_write_bytes(UART_NUM_2, data, 17);
     return 0;
 }
 
