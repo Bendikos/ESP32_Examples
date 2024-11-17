@@ -23,15 +23,21 @@
 #define BUF_SIZE (1024)
 #define RD_BUF_SIZE (BUF_SIZE)
 
-/*
-0   刚初始化系统
-1   读索引表
-2   注册指纹
-3   删除指纹
-4   验证指纹
-*/
-uint8_t state = 0;
-uint8_t data_bit[64]; // 数组下标是flash中指纹的ID号。
+/**
+ *0X00 刚初始化系统
+ *0X01 读索引表
+ *0X02 注册指纹
+ *0X03 删除指纹
+ *0X04 验证指纹
+ *0X0A 取消指令
+ */
+uint8_t STATE = 0;
+
+// 指纹的数量
+uint8_t FINGERPRINT_NUMBER = 0;
+
+// 数组下标是flash中指纹的ID号
+uint8_t FINGERPRINT_DATA[64];
 
 static QueueHandle_t uart2_queue;
 
@@ -50,9 +56,9 @@ static void uart_event_task(void *pvParameters)
             switch (event.type)
             {
             case UART_DATA:
-                if (state == 1 && event.size >= 11)
+                if (STATE == 0X01 && event.size >= 11)
                 {
-                    ESP_LOGI(TAG, "读索引表收到的字节数: %d", event.size);
+                    ESP_LOGI(TAG, "读索引表-收到的字节数: %d", event.size);
                     uart_read_bytes(EX_UART_NUM, dtmp, event.size, portMAX_DELAY);
                     ESP_LOG_BUFFER_HEX(TAG, dtmp, event.size); // 打印接收到的数据
                     uint8_t data_th = 0;
@@ -62,21 +68,23 @@ static void uart_event_task(void *pvParameters)
                         data_th = dtmp[i];
                         for (j = 0; j < 8; j++)
                         {
-                            data_bit[num] = (data_th >> j) & 0x01;
+                            FINGERPRINT_DATA[num] = (data_th >> j) & 0x01;
                             num++;
                         }
                     }
                     for (i = 0; i < 64; i++)
                     {
-                        if (data_bit[i] == 1)
+                        if (FINGERPRINT_DATA[i] == 1)
                         {
-                            ESP_LOGI(TAG, "存在指纹: %d", i);
+                            ESP_LOGI(TAG, "存在指纹-id: %d", i);
+                            FINGERPRINT_NUMBER++;
                         }
                     }
+                    ESP_LOGI(TAG, "指纹数量: %d", FINGERPRINT_NUMBER);
                 }
-                if (state == 2 && event.size >= 11)
+                if (STATE == 0X02 && event.size >= 11)
                 {
-                    ESP_LOGI(TAG, "注册指纹收到的字节数: %d", event.size);
+                    // ESP_LOGI(TAG, "注册指纹-收到的字节数: %d", event.size);
                     uart_read_bytes(EX_UART_NUM, dtmp, event.size, portMAX_DELAY);
                     // ESP_LOG_BUFFER_HEX(TAG, dtmp, event.size); // 打印接收到的数据
                     if (dtmp[10] == 0x00 && dtmp[11] == 0x00)
@@ -86,8 +94,10 @@ static void uart_event_task(void *pvParameters)
                     }
                     else if (dtmp[11] <= 0x0A)
                     {
-                        if (dtmp[9] == 0x00)
+                        if (dtmp[9] == 0x00 && dtmp[10] == 0x03)
                             ESP_LOGI(TAG, "第%d次指纹捕捉成功", dtmp[11]);
+                        if (dtmp[9] == 0x26)
+                            ESP_LOGI(TAG, "注册指纹超时");
                     }
                     if (dtmp[11] == 0xF0)
                     {
@@ -103,20 +113,72 @@ static void uart_event_task(void *pvParameters)
                     {
                         if (dtmp[9] == 0x00)
                             ESP_LOGI(TAG, "模板存储成功");
-
                     }
                 }
-                if (state == 3 && event.size >= 11)
+                if (STATE == 0X03 && event.size >= 11)
                 {
-                    ESP_LOGI(TAG, "删除指纹收到的字节数: %d", event.size);
+                    ESP_LOGI(TAG, "删除指纹-收到的字节数: %d", event.size);
                     uart_read_bytes(EX_UART_NUM, dtmp, event.size, portMAX_DELAY);
                     ESP_LOG_BUFFER_HEX(TAG, dtmp, event.size); // 打印接收到的数据
+                    if (dtmp[9] == 0x00)
+                    {
+                        ESP_LOGI(TAG, "删除指纹-成功");
+                        if (FINGERPRINT_NUMBER >= 1)
+                            FINGERPRINT_NUMBER--;
+                    }
+                    if (dtmp[9] == 0x01)
+                    {
+                        ESP_LOGI(TAG, "删除指纹-收包有错");
+                    }
+                    if (dtmp[9] == 0x10)
+                    {
+                        ESP_LOGI(TAG, "删除指纹-失败");
+                    }
                 }
-                if (state == 4 && event.size >= 11)
+                if (STATE == 0X04 && event.size >= 11)
                 {
-                    ESP_LOGI(TAG, "验证指纹收到的字节数: %d", event.size);
+                    ESP_LOGI(TAG, "验证指纹-收到的字节数: %d", event.size);
                     uart_read_bytes(EX_UART_NUM, dtmp, event.size, portMAX_DELAY);
                     ESP_LOG_BUFFER_HEX(TAG, dtmp, event.size); // 打印接收到的数据
+                    if (dtmp[10] == 0x00)
+                    {
+                        if (dtmp[9] == 0x00)
+                            ESP_LOGI(TAG, "验证指纹-指令合法");
+                    }
+                    if (dtmp[10] == 0x01)
+                    {
+                        if (dtmp[9] == 0x00)
+                            ESP_LOGI(TAG, "验证指纹-获取图像成功");
+                        else if (dtmp[9] == 0x26)
+                            ESP_LOGI(TAG, "验证指纹-获取图像超时");
+                    }
+                    if (dtmp[10] == 0x05)
+                    {
+                        if (dtmp[9] == 0x00)
+                            ESP_LOGI(TAG, "验证指纹-搜到了指纹");
+                        else if (dtmp[9] == 0x09)
+                            ESP_LOGI(TAG, "验证指纹-没搜索到指纹");
+                        else if (dtmp[9] == 0x24)
+                            ESP_LOGI(TAG, "验证指纹-指纹库为空");
+                    }
+                }
+                if (STATE == 0X0A && event.size >= 11)
+                {
+                    ESP_LOGI(TAG, "取消指令-收到的字节数: %d", event.size);
+                    uart_read_bytes(EX_UART_NUM, dtmp, event.size, portMAX_DELAY);
+                    ESP_LOG_BUFFER_HEX(TAG, dtmp, event.size); // 打印接收到的数据
+                    if (dtmp[9] == 0x00)
+                    {
+                        ESP_LOGI(TAG, "取消指令-成功");
+                    }
+                    else if (dtmp[9] == 0x01)
+                    {
+                        ESP_LOGI(TAG, "取消指令-失败");
+                    }
+                    else if (dtmp[9] == 0x31)
+                    {
+                        ESP_LOGI(TAG, "取消指令-功能与加密等级不匹配");
+                    }
                 }
                 break;
 
@@ -141,7 +203,8 @@ static void uart_event_task(void *pvParameters)
                     {
                         ESP_LOGI(TAG, "pat[0] == 0X55 ZW101初始化完成");
                         ZW101_ReadIndexTable();
-                        state = 1;
+                        if (STATE == 0X00)
+                            STATE = 0X01;
                     }
                 }
                 break;
@@ -193,12 +256,30 @@ void app_main(void)
 
         // ZW101_ReadSysPara();
         // ZW101_AutoIdentify();
-        // ZW101_DeletChar(0x01);
-        // ZW101_AutoEnroll(0x01);
+
         // if (!zw101_package(buffer1, sizeof(buffer1)))
         //     uart_write_bytes(EX_UART_NUM, buffer1, sizeof(buffer1));
-        vTaskDelay(pdMS_TO_TICKS(9000));
-        state = 2;
-        ZW101_AutoEnroll(0x03);
+        vTaskDelay(pdMS_TO_TICKS(3000));
+
+        // STATE = 3;
+        // ZW101_DeletChar(3);
+
+        // if (STATE != 0X00)
+        // {
+        //     STATE = 0X0A;
+        //     ZW101_Cancel();
+        // }
+            
+        // vTaskDelay(pdMS_TO_TICKS(100));
+        STATE = 0X04;
+        ZW101_AutoIdentify();
+
+        // ESP_LOGI(TAG, "指纹数量: %d", FINGERPRINT_NUMBER);
+        // vTaskDelay(pdMS_TO_TICKS(6000));
+
+        // STATE = 0X0A;
+        // ZW101_Cancel();
+        // STATE = 0X02;
+        // ZW101_AutoEnroll(3);
     }
 }
